@@ -1,4 +1,5 @@
 streamlit
 torch
-ultralytics
-ffmpeg-python
+opencv-python
+numpy
+Pillow
