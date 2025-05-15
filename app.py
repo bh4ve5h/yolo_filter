@@ -3,6 +3,7 @@ import os
 import uuid
 import shutil
 import subprocess
+import torch
 from pathlib import Path
 
 # --- Setup ---
