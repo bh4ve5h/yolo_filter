@@ -1,5 +1,7 @@
+torch
 streamlit
 opencv-python
-torch
 Pillow
 ffmpeg-python
+numpy
+pyyaml
