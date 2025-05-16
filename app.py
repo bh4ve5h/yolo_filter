@@ -1,60 +1,69 @@
 import streamlit as st
-from ultralytics import YOLO
-import tempfile
 import os
-import subprocess
+import uuid
 import shutil
+import subprocess
+from pathlib import Path
 
-st.set_page_config(page_title="YOLO Video Detection", layout="centered")
+st.set_page_config(page_title="YOLOv5 Video Detection", layout="centered")
+st.title("🎯 YOLOv5 Video Detection App")
+st.markdown("Upload a video ⬆️ → Run detection 🚀 → Download result with audio ⬇️")
 
-st.title("🎯 YOLOv8 Video Detection App")
-st.markdown("Upload a video, run object detection, and download the result with original audio.")
+# --- Clean old runs ---
+def clean_runs():
+    for f in os.listdir():
+        if f.startswith(("input_", "output_")) and f.endswith((".mp4", ".mov", ".avi")):
+            os.remove(f)
+    shutil.rmtree("runs/detect", ignore_errors=True)
 
-# Load model once
-@st.cache_resource
-def load_model():
-    return YOLO("yolov8n.pt")
+# --- Run detection and merge audio ---
+def run_yolov5_detection(input_video_path, output_name):
+    run_id = f"detect_{uuid.uuid4().hex[:6]}"
+    os.system(f"python detect.py --source \"{input_video_path}\" --conf 0.3 --name {run_id} --exist-ok")
 
-model = load_model()
+    detect_dir = Path("runs/detect") / run_id
+    detected_video = next(detect_dir.glob("*.mp4"), None)
 
-# Upload video
-uploaded_video = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
+    if detected_video:
+        audio_path = f"temp_audio.aac"
+        final_output = f"{output_name}"
 
-if uploaded_video:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        input_video_path = os.path.join(tmpdir, "input_video.mp4")
-        output_video_path = os.path.join(tmpdir, "output_detected.mp4")
-        final_video_path = os.path.join(tmpdir, "final_output.mp4")
+        # Extract audio from original
+        subprocess.run(
+            f"ffmpeg -y -i \"{input_video_path}\" -vn -acodec copy \"{audio_path}\"",
+            shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
 
-        # Save uploaded file
-        with open(input_video_path, "wb") as f:
-            f.write(uploaded_video.read())
+        # Merge audio into detected video
+        subprocess.run(
+            f"ffmpeg -y -i \"{detected_video}\" -i \"{audio_path}\" -c:v copy -c:a aac -strict experimental \"{final_output}\"",
+            shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
 
-        st.video(input_video_path)
-        st.success("Video uploaded successfully!")
+        os.remove(audio_path)
+        return final_output
+    return None
 
-        if st.button("🚀 Run YOLO Detection"):
-            with st.spinner("Running detection..."):
-                model.predict(source=input_video_path, save=True, save_txt=False, project=tmpdir, name="yolo_output", exist_ok=True)
+# --- Streamlit App ---
+video_file = st.file_uploader("📤 Upload a video", type=["mp4", "avi", "mov"])
 
-                # Get output video path from YOLO output
-                detected_video_path = os.path.join(tmpdir, "yolo_output", "input_video.mp4")
+if video_file:
+    clean_runs()
 
-                if not os.path.exists(detected_video_path):
-                    st.error("Detection failed: Output video not found.")
-                else:
-                    # Extract audio from original
-                    audio_path = os.path.join(tmpdir, "audio.aac")
-                    subprocess.run(["ffmpeg", "-y", "-i", input_video_path, "-q:a", "0", "-map", "a", audio_path],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    unique_name = f"input_{uuid.uuid4().hex[:6]}_{video_file.name}"
+    with open(unique_name, "wb") as f:
+        f.write(video_file.read())
 
-                    # Merge audio with detected video
-                    subprocess.run(["ffmpeg", "-y", "-i", detected_video_path, "-i", audio_path, "-c:v", "copy", "-c:a", "aac", "-strict", "experimental", final_video_path],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    st.success(f"✅ Uploaded: {video_file.name}")
 
-                    st.success("✅ Detection complete! Preview below:")
-                    st.video(final_video_path)
+    if st.button("🚀 Run YOLOv5 Detection"):
+        with st.spinner("Detecting objects…"):
+            output_name = f"output_{video_file.name}"
+            final_video = run_yolov5_detection(unique_name, output_name)
 
-                    # Download button
-                    with open(final_video_path, "rb") as f:
-                        st.download_button("📥 Download Final Video", f, file_name="yolo_output_with_audio.mp4", mime="video/mp4")
+            if final_video and os.path.exists(final_video):
+                st.success("✅ Done! Download your video below:")
+                with open(final_video, "rb") as f:
+                    st.download_button("⬇️ Download Output", f, file_name=output_name, mime="video/mp4")
+            else:
+                st.error("❌ No output video found. Make sure your model is working and video contains detectable content.")
