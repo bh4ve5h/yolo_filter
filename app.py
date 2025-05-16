@@ -3,7 +3,6 @@ import os
 import uuid
 import shutil
 import subprocess
-import torch
 from pathlib import Path
 
 st.set_page_config(page_title="YOLOv5 Video Detection", layout="centered")
